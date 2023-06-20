@@ -1,0 +1,54 @@
+name: Cloud Android Phone
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Set up JDK
+        uses: actions/setup-java@v2
+        with:
+          java-version: '11'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v2
+        with:
+          sdk-platform: 'platforms;android-30'
+
+      - name: Download ngrok
+        run: Invoke-WebRequest https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+
+      - name: Extract ngrok
+        run: Expand-Archive ngrok.zip
+
+      - name: Authenticate ngrok
+        run: .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+
+      - name: Start ngrok tunnel
+        run: .\ngrok\ngrok.exe tcp 3389
+
+      - name: Install Microsoft Remote Desktop
+        run: |
+          $rdpAppUrl = "https://go.microsoft.com/fwlink/?LinkId=206986&{{ runner.os }}-{{ env.ANDROID_ARCH }}"
+          Invoke-WebRequest -Uri $rdpAppUrl -OutFile rdpApp.exe
+          Start-Process -FilePath .\rdpApp.exe -ArgumentList "/install" -Wait
+
+      - name: Connect to Cloud Android Phone
+        run: |
+          $rdpIpAddress = (.\ngrok\ngrok.exe http 3389 --log stdout | Select-String -Pattern 'Forwarding.*tcp://(.*):')
+          $rdpIpAddress = $rdpIpAddress.Matches.Groups[1].Value
+          Start-Process "mstsc.exe" -ArgumentList "/v:$rdpIpAddress"
+
+
+
